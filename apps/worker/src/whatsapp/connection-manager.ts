@@ -1,4 +1,6 @@
 import { EventEmitter } from "events";
+import { rm } from "fs/promises";
+import { join } from "path";
 import { Client, LocalAuth } from "whatsapp-web.js";
 import { db } from "../lib/db";
 import { redis } from "../lib/redis";
@@ -105,6 +107,10 @@ export class ConnectionManager extends EventEmitter {
     this.client = client;
     this._attachEvents(client);
 
+    // Remove stale Puppeteer lock left by an ungraceful shutdown.
+    const lockFile = join(".wwebjs_auth", `session-${this.userId}`, "SingletonLock");
+    await rm(lockFile, { force: true }).catch(() => {});
+
     try {
       await client.initialize();
     } catch (err) {
@@ -200,9 +206,7 @@ export class ConnectionManager extends EventEmitter {
 
     logger.info("QR received — scan with WhatsApp (expires in 20 s)");
 
-    // Terminal rendering for local dev.
-    const { default: qrTerminal } = await import("qrcode-terminal");
-    qrTerminal.generate(qr, { small: true });
+    logger.info("QR code ready — scan it in the dashboard UI");
 
     // Publish to Redis so the web app can serve it via SSE or polling.
     await redis
