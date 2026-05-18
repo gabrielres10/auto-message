@@ -90,7 +90,7 @@ export class ConnectionManager extends EventEmitter {
     logger.info({ attempt: this.reconnectAttempts }, "Booting WhatsApp client");
 
     const client = new Client({
-      authStrategy: new LocalAuth({ dataPath: ".wwebjs_auth" }),
+      authStrategy: new LocalAuth({ clientId: this.userId, dataPath: ".wwebjs_auth" }),
       puppeteer: {
         headless: true,
         args: [
@@ -176,6 +176,8 @@ export class ConnectionManager extends EventEmitter {
     client.on("disconnected", (reason: string) => {
       logger.warn({ reason }, "WhatsApp disconnected");
       this.client = null;
+      // Skip reconnect if destroy() was called explicitly.
+      if (this._state === "DESTROYED") return;
       this._setState("DISCONNECTED");
       void this._syncSession({
         isConnected: false,

@@ -21,8 +21,8 @@ export interface WhatsAppHealthReport {
  * Intended for internal monitoring, not direct API exposure.
  * The web app derives status independently by reading WhatsAppSession from DB.
  */
-export async function getWhatsAppHealth(): Promise<WhatsAppHealthReport> {
-  const manager = getConnectionManager();
+export async function getWhatsAppHealth(userId: string): Promise<WhatsAppHealthReport> {
+  const manager = getConnectionManager(userId);
 
   const session = await db.whatsAppSession.findUnique({
     where: { userId: manager.userId },

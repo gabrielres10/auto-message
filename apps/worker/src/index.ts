@@ -2,57 +2,111 @@ import "dotenv/config";
 import type { Worker } from "bullmq";
 import { logger } from "./lib/logger";
 import { db } from "./lib/db";
-import { initWhatsAppClient, destroyWhatsAppClient } from "./whatsapp/client";
+import { createRedisConnection } from "./lib/redis";
+import { connectUser, disconnectUser, destroyAllClients } from "./whatsapp/client";
 import { schedulerQueue } from "./queues/scheduler.queue";
 import { createSchedulerWorker } from "./workers/scheduler.worker";
 import { createSenderWorker } from "./workers/sender.worker";
 import { createDLQWorker } from "./workers/dlq.worker";
 
-async function main() {
-  // ── Validate required env vars before anything else ─────────────────────────
-  const WORKER_USER_ID = process.env.WORKER_USER_ID;
-  if (!WORKER_USER_ID) {
-    logger.fatal(
-      "WORKER_USER_ID env var is required. " +
-        "Set it to the DB user ID of the account that owns the WhatsApp session.",
-    );
-    process.exit(1);
+const CONTROL_CHANNEL = "whatsapp:control";
+
+interface ControlMessage {
+  action: "connect" | "disconnect";
+  userId: string;
+}
+
+async function reconnectActiveSessions(): Promise<void> {
+  const activeSessions = await db.whatsAppSession.findMany({
+    where: { isConnected: true },
+    select: { userId: true },
+  });
+
+  if (activeSessions.length === 0) {
+    logger.info("No active WhatsApp sessions to restore");
+    return;
   }
 
+  logger.info({ count: activeSessions.length }, "Restoring active WhatsApp sessions");
+
+  await Promise.allSettled(
+    activeSessions.map(({ userId }) =>
+      connectUser(userId).catch((err: unknown) =>
+        logger.error({ err, userId }, "Failed to restore session"),
+      ),
+    ),
+  );
+}
+
+async function subscribeToControlChannel(): Promise<void> {
+  const sub = createRedisConnection();
+
+  sub.on("message", (channel: string, message: string) => {
+    if (channel !== CONTROL_CHANNEL) return;
+
+    let cmd: ControlMessage;
+    try {
+      cmd = JSON.parse(message) as ControlMessage;
+    } catch {
+      logger.warn({ message }, "Received malformed control message");
+      return;
+    }
+
+    const { action, userId } = cmd;
+    if (!userId || (action !== "connect" && action !== "disconnect")) {
+      logger.warn({ cmd }, "Invalid control message");
+      return;
+    }
+
+    logger.info({ action, userId }, "Received WhatsApp control command");
+
+    if (action === "connect") {
+      void connectUser(userId).catch((err: unknown) =>
+        logger.error({ err, userId }, "connectUser failed"),
+      );
+    } else {
+      void disconnectUser(userId).catch((err: unknown) =>
+        logger.error({ err, userId }, "disconnectUser failed"),
+      );
+    }
+  });
+
+  await sub.subscribe(CONTROL_CHANNEL);
+  logger.info({ channel: CONTROL_CHANNEL }, "Subscribed to WhatsApp control channel");
+}
+
+async function main() {
   logger.info("Starting auto-message worker");
 
-  // ── WhatsApp client ─────────────────────────────────────────────────────────
-  // initialize() boots Puppeteer and begins the auth flow (LocalAuth or QR scan).
-  // Workers start immediately and will retry jobs until the client becomes READY.
-  await initWhatsAppClient(WORKER_USER_ID);
+  // ── Restore previously active sessions ────────────────────────────────────
+  await reconnectActiveSessions();
 
-  // ── BullMQ workers ──────────────────────────────────────────────────────────
+  // ── Subscribe to connect/disconnect commands from the web app ─────────────
+  await subscribeToControlChannel();
+
+  // ── BullMQ workers ────────────────────────────────────────────────────────
   const schedulerWorker = createSchedulerWorker();
   const senderWorker = createSenderWorker();
   const dlqWorker = createDLQWorker();
 
-  // Register the repeatable scheduler tick — idempotent, safe on every startup.
   await schedulerQueue.upsertJobScheduler(
     "scheduler-tick",
-    { pattern: "* * * * *" }, // every minute
+    { pattern: "* * * * *" },
     { name: "tick", data: {} },
   );
 
   logger.info("Workers running — scheduler tick registered (cron: * * * * *)");
 
-  // ── Graceful shutdown ───────────────────────────────────────────────────────
+  // ── Graceful shutdown ─────────────────────────────────────────────────────
   const workers: Worker[] = [schedulerWorker, senderWorker, dlqWorker];
 
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "Graceful shutdown initiated");
 
-    // Worker.close() waits for in-flight jobs to complete before closing Redis.
     await Promise.all(workers.map((w) => w.close()));
-
-    // Persist disconnect state and destroy Puppeteer.
-    await destroyWhatsAppClient();
-
+    await destroyAllClients();
     await db.$disconnect();
+
     logger.info("Shutdown complete");
     process.exit(0);
   };

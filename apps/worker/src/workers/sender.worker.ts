@@ -11,7 +11,7 @@ export function createSenderWorker() {
   const worker = new Worker<SendMessageJobData>(
     QUEUE_NAMES.SENDER,
     async (job) => {
-      const { executionId, scheduledMessageId, phoneNumber, body } = job.data;
+      const { executionId, scheduledMessageId, phoneNumber, body, userId } = job.data;
       const log = logger.child({
         jobId: job.id,
         executionId,
@@ -45,6 +45,7 @@ export function createSenderWorker() {
       const { messageId, timestamp } = await sendWhatsAppMessage(
         phoneNumber,
         body,
+        userId,
       );
 
       await db.messageExecution.update({

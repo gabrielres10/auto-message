@@ -32,6 +32,7 @@ export interface SendResult {
 export async function sendWhatsAppMessage(
   phoneNumber: string,
   body: string,
+  userId: string,
 ): Promise<SendResult> {
   if (!E164_RE.test(phoneNumber)) {
     throw new UnrecoverableError(
@@ -40,7 +41,7 @@ export async function sendWhatsAppMessage(
   }
 
   // Throws if state !== READY — BullMQ will retry after backoff.
-  const client = getConnectionManager().getClient();
+  const client = getConnectionManager(userId).getClient();
 
   // Strip leading '+' to build the WhatsApp chat ID.
   const chatId = `${phoneNumber.slice(1)}@c.us`;
