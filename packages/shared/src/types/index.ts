@@ -1,32 +1,22 @@
-export type MessageStatus =
+export type { SendMessageJobData, DLQJobData, SchedulerTickJobData } from "./jobs";
+
+// Enum mirror types — use Prisma-generated enums in app code; these are for
+// packages that cannot import @prisma/client.
+export type MessageStatus = "ACTIVE" | "PAUSED" | "COMPLETED" | "CANCELLED";
+export type ExecutionStatus =
   | "PENDING"
+  | "QUEUED"
   | "PROCESSING"
   | "SENT"
   | "FAILED"
-  | "CANCELLED";
-
-export interface SendMessageJobData {
-  messageId: string;
-  recipient: string;
-  content: string;
-  scheduledAt: string; // ISO 8601
-}
-
-export interface ScheduledMessageDTO {
-  id: string;
-  userId: string;
-  recipient: string;
-  content: string;
-  scheduledAt: string;
-  status: MessageStatus;
-  jobId: string | null;
-  error: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface CreateMessageInput {
-  recipient: string;
-  content: string;
-  scheduledAt: string; // ISO 8601
-}
+  | "CANCELLED"
+  | "RETRYING";
+export type RecurrenceType = "ONCE" | "DAILY" | "WEEKLY" | "MONTHLY" | "CUSTOM";
+export type DayOfWeek =
+  | "SUNDAY"
+  | "MONDAY"
+  | "TUESDAY"
+  | "WEDNESDAY"
+  | "THURSDAY"
+  | "FRIDAY"
+  | "SATURDAY";

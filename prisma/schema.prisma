@@ -7,6 +7,46 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+/// Overall lifecycle state of a scheduled message (not per-execution).
+enum MessageStatus {
+  ACTIVE    // enabled and will fire on next scheduled time
+  PAUSED    // temporarily disabled by the user
+  COMPLETED // all occurrences sent, or one-time message was delivered
+  CANCELLED // permanently stopped by the user
+}
+
+/// Per-execution outcome tracked in MessageExecution.
+enum ExecutionStatus {
+  PENDING    // row created, not yet enqueued
+  QUEUED     // BullMQ job created with delay
+  PROCESSING // worker has picked the job
+  SENT       // WhatsApp confirmed delivery
+  FAILED     // exhausted retries
+  CANCELLED  // removed before it could fire
+  RETRYING   // queued for a retry attempt
+}
+
+/// How often a ScheduledMessage recurs.
+enum RecurrenceType {
+  ONCE    // fires exactly once
+  DAILY   // every N days
+  WEEKLY  // on specific days of the week
+  MONTHLY // on specific days of the month
+  CUSTOM  // arbitrary interval in days
+}
+
+enum DayOfWeek {
+  SUNDAY
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+}
+
 // ─── NextAuth models ──────────────────────────────────────────────────────────
 
 model User {
@@ -15,12 +55,15 @@ model User {
   email         String?   @unique
   emailVerified DateTime?
   image         String?
+  password      String?   // null for OAuth-only users
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
 
   accounts          Account[]
   sessions          Session[]
   scheduledMessages ScheduledMessage[]
+  messageTemplates  MessageTemplate[]
   whatsappSession   WhatsAppSession?
 }
 
@@ -63,37 +106,153 @@ model VerificationToken {
 // ─── Application models ───────────────────────────────────────────────────────
 
 model ScheduledMessage {
-  id          String        @id @default(cuid())
-  userId      String
-  recipient   String
-  content     String        @db.Text
-  scheduledAt DateTime
-  status      MessageStatus @default(PENDING)
-  jobId       String?
-  error       String?       @db.Text
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id     String @id @default(cuid())
+  userId String
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // ── Target ──────────────────────────────────────────────────────────────
+  phoneNumber String  // E.164: +573001234567
+  body        String  @db.Text
 
-  @@index([userId, status])
-  @@index([scheduledAt])
+  // ── Scheduling ──────────────────────────────────────────────────────────
+  timezone      String // IANA e.g. "America/Bogota"
+  scheduledTime String // "HH:MM" 24h e.g. "09:30"
+
+  // ── Recurrence ──────────────────────────────────────────────────────────
+  recurrenceType RecurrenceType  @default(ONCE)
+  recurrenceRule RecurrenceRule?
+
+  // ── Lifecycle ───────────────────────────────────────────────────────────
+  status   MessageStatus @default(ACTIVE)
+  isActive Boolean       @default(true)
+
+  // ── Execution tracking (denormalized for fast worker polling) ────────────
+  nextRunAt       DateTime? // when to fire next; updated by worker after each run
+  lastRunAt       DateTime? // timestamp of last completed execution
+  totalExecutions Int       @default(0)
+
+  // ── Soft delete ──────────────────────────────────────────────────────────
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  executions MessageExecution[]
+
+  // Worker query: "what needs to run right now?"
+  @@index([nextRunAt, isActive, deletedAt])
+  @@index([userId, isActive, deletedAt])
+  @@index([userId, status, deletedAt])
+  @@index([deletedAt])
+}
+
+model RecurrenceRule {
+  id                 String @id @default(cuid())
+  scheduledMessageId String @unique
+
+  type     RecurrenceType
+  interval Int            @default(1) // every N units (days / weeks / months)
+
+  // WEEKLY — which days of the week
+  daysOfWeek DayOfWeek[]
+
+  // MONTHLY — which calendar days (1–31)
+  daysOfMonth Int[]
+
+  // Bounds
+  startsAt       DateTime  // when the recurrence window opens
+  endsAt         DateTime? // null = no end date
+  maxOccurrences Int?      // null = unlimited
+  occurrenceCount Int      @default(0) // incremented after each successful run
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  scheduledMessage ScheduledMessage @relation(fields: [scheduledMessageId], references: [id], onDelete: Cascade)
+}
+
+model MessageExecution {
+  id                 String @id @default(cuid())
+  scheduledMessageId String
+
+  // ── Timing ──────────────────────────────────────────────────────────────
+  scheduledFor DateTime  // exact UTC datetime this run was supposed to fire
+  queuedAt     DateTime? // when the BullMQ job was created
+  startedAt    DateTime? // when the worker began processing
+  completedAt  DateTime? // terminal timestamp (success or final failure)
+
+  // ── Queue ────────────────────────────────────────────────────────────────
+  jobId   String? // BullMQ job ID
+  attempt Int     @default(1) // which attempt number this is
+
+  // ── Result ───────────────────────────────────────────────────────────────
+  status       ExecutionStatus @default(PENDING)
+  errorMessage String?         @db.Text
+  responseData Json? // raw delivery receipt from whatsapp-web.js
+
+  // ── Soft delete ──────────────────────────────────────────────────────────
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  scheduledMessage ScheduledMessage @relation(fields: [scheduledMessageId], references: [id], onDelete: Cascade)
+
+  @@index([scheduledMessageId, scheduledFor])
+  @@index([status, scheduledFor])
+  @@index([jobId])
+  @@index([deletedAt])
 }
 
 model WhatsAppSession {
-  id        String   @id @default(cuid())
-  userId    String   @unique
-  data      Json
+  id     String @id @default(cuid())
+  userId String @unique
+
+  // ── Connection ───────────────────────────────────────────────────────────
+  isConnected Boolean @default(false)
+  phoneNumber String? // connected WhatsApp number (E.164)
+  displayName String? // WhatsApp profile display name
+
+  // ── QR authentication ────────────────────────────────────────────────────
+  qrCode      String?   @db.Text // latest QR string for the web UI to render
+  qrExpiresAt DateTime?
+
+  // ── Session persistence (whatsapp-web.js LocalAuth blob) ─────────────────
+  sessionData Json?
+
+  // ── Activity timeline ────────────────────────────────────────────────────
+  connectedAt      DateTime?
+  lastActiveAt     DateTime?
+  disconnectedAt   DateTime?
+  disconnectReason String?
+
+  // ── Soft delete ──────────────────────────────────────────────────────────
+  deletedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isConnected])
 }
 
-enum MessageStatus {
-  PENDING
-  PROCESSING
-  SENT
-  FAILED
-  CANCELLED
+model MessageTemplate {
+  id     String @id @default(cuid())
+  userId String
+
+  name      String
+  body      String   @db.Text
+  variables String[] // placeholder names e.g. ["name", "date", "amount"]
+
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Template names are unique per user
+  @@unique([userId, name])
+  @@index([userId, deletedAt])
 }

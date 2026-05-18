@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(npx tsc *)",
+      "Bash(npx prisma *)",
+      "Bash(New-Item -ItemType Directory -Force \"C:\\\\Users\\\\gabri\\\\Projects\\\\auto-message\\\\prisma\\\\migrations\\\\20260518000000_init\")",
+      "Bash(Out-Null)",
+      "Bash(Write-Host \"Created\")"
     ]
   }
 }

@@ -1,12 +1,4 @@
-import { Queue } from "bullmq";
-import { redis } from "../lib/redis";
-import type { SendMessageJobData } from "@auto-message/shared";
-
-export const QUEUE_NAMES = {
-  MESSAGES: "whatsapp-messages",
-} as const;
-
-export const messageQueue = new Queue<SendMessageJobData>(
-  QUEUE_NAMES.MESSAGES,
-  { connection: redis }
-);
+// Replaced by the split-queue architecture.
+// This re-export keeps any old import paths working during the transition.
+export { senderQueue as messageQueue } from "./sender.queue";
+export { QUEUE_NAMES } from "./names";

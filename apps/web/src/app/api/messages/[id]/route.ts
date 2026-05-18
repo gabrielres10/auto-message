@@ -1,19 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { getSession } from "@/lib/session";
 import { db } from "@/lib/db";
-import { messageQueue } from "@/lib/queue";
+import { senderQueue } from "@/lib/queue";
 
-type Params = { params: { id: string } };
+// Next.js 15 — params is a Promise
+type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_request: NextRequest, { params }: Params) {
-  const session = await getServerSession(authOptions);
+  const { id } = await params;
+  const session = await getSession();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const message = await db.scheduledMessage.findFirst({
-    where: { id: params.id, userId: session.user.id },
+    where: { id, userId: session.user.id, deletedAt: null },
+    include: { recurrenceRule: true, executions: { orderBy: { scheduledFor: "desc" } } },
   });
 
   if (!message) {
@@ -24,34 +26,56 @@ export async function GET(_request: NextRequest, { params }: Params) {
 }
 
 export async function DELETE(_request: NextRequest, { params }: Params) {
-  const session = await getServerSession(authOptions);
+  const { id } = await params;
+  const session = await getSession();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const message = await db.scheduledMessage.findFirst({
-    where: { id: params.id, userId: session.user.id },
+    where: { id, userId: session.user.id, deletedAt: null },
   });
 
   if (!message) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  if (message.status !== "PENDING") {
+  if (message.status === "CANCELLED" || message.status === "COMPLETED") {
     return NextResponse.json(
-      { error: "Only PENDING messages can be cancelled" },
-      { status: 409 }
+      { error: `Cannot cancel a ${message.status.toLowerCase()} message` },
+      { status: 409 },
     );
   }
 
-  if (message.jobId) {
-    const job = await messageQueue.getJob(message.jobId);
-    await job?.remove();
-  }
+  // Cancel any queued or pending executions and remove their BullMQ jobs.
+  const pendingExecutions = await db.messageExecution.findMany({
+    where: {
+      scheduledMessageId: id,
+      status: { in: ["QUEUED", "PENDING"] },
+    },
+    select: { id: true, jobId: true },
+  });
+
+  await Promise.all(
+    pendingExecutions
+      .filter((e) => e.jobId !== null)
+      .map(async (e) => {
+        const job = await senderQueue.getJob(e.jobId!);
+        await job?.remove();
+      }),
+  );
+
+  await db.messageExecution.updateMany({
+    where: {
+      scheduledMessageId: id,
+      status: { in: ["QUEUED", "PENDING"] },
+    },
+    data: { status: "CANCELLED" },
+  });
 
   await db.scheduledMessage.update({
-    where: { id: params.id },
-    data: { status: "CANCELLED" },
+    where: { id },
+    data: { status: "CANCELLED", isActive: false, nextRunAt: null },
   });
 
   return new NextResponse(null, { status: 204 });

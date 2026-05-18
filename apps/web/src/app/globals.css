@@ -1,3 +1,43 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    /* Surfaces */
+    --surface-1: 0 0% 100%;
+    --surface-2: 240 5% 96%;
+    /* Border */
+    --border-subtle: 240 6% 90%;
+    /* Text */
+    --fg: 240 10% 4%;
+    --fg-secondary: 240 4% 46%;
+    /* CTA */
+    --cta: 234 89% 60%;
+  }
+
+  .dark {
+    --surface-1: 240 10% 5%;
+    --surface-2: 240 8% 9%;
+    --border-subtle: 240 6% 16%;
+    --fg: 0 0% 95%;
+    --fg-secondary: 240 4% 60%;
+    --cta: 234 89% 68%;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-harmony-surface-2 text-harmony-fg font-sans;
+    min-height: 100dvh;
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+}

@@ -3,18 +3,13 @@ import { redis } from "./redis";
 import type { SendMessageJobData } from "@auto-message/shared";
 
 export const QUEUE_NAMES = {
-  MESSAGES: "whatsapp-messages",
+  SCHEDULER: "auto-msg:scheduler",
+  SENDER: "auto-msg:sender",
+  DLQ: "auto-msg:dlq",
 } as const;
 
-export const messageQueue = new Queue<SendMessageJobData>(
-  QUEUE_NAMES.MESSAGES,
-  {
-    connection: redis,
-    defaultJobOptions: {
-      attempts: 3,
-      backoff: { type: "exponential", delay: 5_000 },
-      removeOnComplete: { age: 60 * 60 * 24 },     // 24 h
-      removeOnFail: { age: 60 * 60 * 24 * 7 },     // 7 d
-    },
-  }
-);
+// Web app only needs a reference to the sender queue for job cancellation.
+// All enqueuing is handled by the scheduler worker — never add jobs here.
+export const senderQueue = new Queue<SendMessageJobData>(QUEUE_NAMES.SENDER, {
+  connection: redis,
+});
