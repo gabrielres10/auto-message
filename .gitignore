@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js
+.next/
+out/
+
+# Build output
+dist/
+build/
+.cache/
+.parcel-cache/
+
+# Coverage
+coverage/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# WhatsApp session data
+.wwebjs_auth/
+.wwebjs_cache/
+.session
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pino-*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Vercel
+.vercel
