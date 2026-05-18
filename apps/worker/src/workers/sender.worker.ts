@@ -5,7 +5,7 @@ import { logger } from "../lib/logger";
 import { createRedisConnection } from "../lib/redis";
 import { dlqQueue } from "../queues/dlq.queue";
 import { QUEUE_NAMES } from "../queues/names";
-import { getWhatsAppClient } from "../whatsapp/client";
+import { sendWhatsAppMessage } from "../whatsapp/sender";
 
 export function createSenderWorker() {
   const worker = new Worker<SendMessageJobData>(
@@ -21,7 +21,7 @@ export function createSenderWorker() {
 
       log.info("Processing send job");
 
-      // Deduplication safety net — skip if a previous attempt already delivered.
+      // Deduplication safety net: a previous attempt may have already succeeded.
       const exec = await db.messageExecution.findUnique({
         where: { id: executionId },
         select: { status: true },
@@ -40,22 +40,23 @@ export function createSenderWorker() {
         },
       });
 
-      const client = getWhatsAppClient();
-      const response = await client.sendMessage(`${phoneNumber}@c.us`, body);
+      // sendWhatsAppMessage throws UnrecoverableError for invalid numbers
+      // (no retry) and a regular Error for transient failures (retried by BullMQ).
+      const { messageId, timestamp } = await sendWhatsAppMessage(
+        phoneNumber,
+        body,
+      );
 
       await db.messageExecution.update({
         where: { id: executionId },
         data: {
           status: "SENT",
           completedAt: new Date(),
-          responseData: {
-            messageId: response.id._serialized,
-            timestamp: response.timestamp,
-          },
+          responseData: { messageId, timestamp },
         },
       });
 
-      // Update parent message counters; mark ONCE messages as COMPLETED.
+      // Mark ONCE messages COMPLETED; increment counters on all.
       const parent = await db.scheduledMessage.findUnique({
         where: { id: scheduledMessageId },
         select: { recurrenceType: true },
@@ -70,28 +71,28 @@ export function createSenderWorker() {
         },
       });
 
-      log.info({ responseId: response.id._serialized }, "Message sent");
+      log.info({ messageId }, "Message sent successfully");
     },
     {
       connection: createRedisConnection(),
-      concurrency: 1, // respect WhatsApp rate limits
+      concurrency: 1, // WhatsApp enforces rate limits; keep sequential
     },
   );
 
-  // Runs after every failure — including retryable ones.
+  // ── Failure handler ─────────────────────────────────────────────────────────
   worker.on("failed", (job, err) => {
     if (!job) return;
 
     const maxAttempts = job.opts.attempts ?? 1;
     const isExhausted = job.attemptsMade >= maxAttempts;
     const { executionId, scheduledMessageId } = job.data;
+    const log = logger.child({ jobId: job.id, executionId, scheduledMessageId });
 
     if (!isExhausted) {
-      logger.warn(
-        { jobId: job.id, executionId, attempt: job.attemptsMade, maxAttempts, err: err.message },
+      log.warn(
+        { attempt: job.attemptsMade, maxAttempts, err: err.message },
         "Send attempt failed — will retry",
       );
-      // Mark RETRYING so the dashboard can show meaningful state.
       void db.messageExecution.update({
         where: { id: executionId },
         data: { status: "RETRYING", errorMessage: err.message },
@@ -99,10 +100,10 @@ export function createSenderWorker() {
       return;
     }
 
-    // All attempts exhausted — move to dead-letter queue.
-    logger.error(
-      { jobId: job.id, executionId, scheduledMessageId, attempts: job.attemptsMade, err: err.message },
-      "Job exhausted retries — moving to DLQ",
+    // All attempts exhausted (or UnrecoverableError) — persist and move to DLQ.
+    log.error(
+      { attempts: job.attemptsMade, err: err.message },
+      "Job exhausted — moving to DLQ",
     );
 
     void db.messageExecution
@@ -125,7 +126,7 @@ export function createSenderWorker() {
         } satisfies DLQJobData),
       )
       .catch((dlqErr: unknown) =>
-        logger.error({ dlqErr, executionId }, "Failed to write to DLQ"),
+        log.error({ dlqErr }, "Failed to write to DLQ"),
       );
   });
 

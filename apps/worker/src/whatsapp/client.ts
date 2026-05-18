@@ -1,46 +1,46 @@
-import { Client, LocalAuth } from "whatsapp-web.js";
-import qrcode from "qrcode-terminal";
-import { logger } from "../lib/logger";
+import { ConnectionManager } from "./connection-manager";
 
-let _client: Client | null = null;
+let _manager: ConnectionManager | null = null;
 
-export function getWhatsAppClient(): Client {
-  if (!_client) {
+/**
+ * Returns the singleton ConnectionManager.
+ * Must be called after `initWhatsAppClient()` has been invoked.
+ */
+export function getConnectionManager(): ConnectionManager {
+  if (!_manager) {
     throw new Error(
-      "WhatsApp client not initialized. Call initWhatsAppClient() first."
+      "WhatsApp client not initialized. Call initWhatsAppClient() first.",
     );
   }
-  return _client;
+  return _manager;
 }
 
-export async function initWhatsAppClient(): Promise<Client> {
-  _client = new Client({
-    authStrategy: new LocalAuth({ dataPath: ".wwebjs_auth" }),
-    puppeteer: {
-      headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    },
-  });
+/**
+ * Convenience accessor for the raw whatsapp-web.js Client.
+ * Throws if the client is not in READY state.
+ */
+export function getWhatsAppClient() {
+  return getConnectionManager().getClient();
+}
 
-  _client.on("qr", (qr) => {
-    // TODO: push QR to Redis so the web app can expose it via polling
-    logger.info("QR code received — scan with WhatsApp:");
-    qrcode.generate(qr, { small: true });
-  });
+/**
+ * Creates and initializes the singleton ConnectionManager.
+ * Must be called once at worker startup, after env vars are loaded.
+ *
+ * @param userId  The DB user ID whose WhatsAppSession row will be kept in sync.
+ */
+export async function initWhatsAppClient(userId: string): Promise<void> {
+  _manager = new ConnectionManager(userId);
+  await _manager.initialize();
+}
 
-  _client.on("ready", () => {
-    logger.info("WhatsApp client ready");
-  });
-
-  _client.on("auth_failure", (message) => {
-    logger.error({ message }, "WhatsApp authentication failed");
-  });
-
-  _client.on("disconnected", (reason) => {
-    logger.warn({ reason }, "WhatsApp client disconnected");
-    _client = null;
-  });
-
-  await _client.initialize();
-  return _client;
+/**
+ * Gracefully destroys the client and persists disconnect state.
+ * Should be called during worker shutdown.
+ */
+export async function destroyWhatsAppClient(): Promise<void> {
+  if (_manager) {
+    await _manager.destroy();
+    _manager = null;
+  }
 }
