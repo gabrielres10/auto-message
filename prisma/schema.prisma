@@ -30,11 +30,12 @@ enum ExecutionStatus {
 
 /// How often a ScheduledMessage recurs.
 enum RecurrenceType {
-  ONCE    // fires exactly once
-  DAILY   // every N days
-  WEEKLY  // on specific days of the week
-  MONTHLY // on specific days of the month
-  CUSTOM  // arbitrary interval in days
+  ONCE     // fires exactly once
+  DAILY    // every day at the scheduled time
+  WEEKDAYS // Monday–Friday only
+  WEEKLY   // on user-selected days of the week
+  MONTHLY  // on specific days of the month
+  CUSTOM   // every N days (arbitrary interval)
 }
 
 enum DayOfWeek {

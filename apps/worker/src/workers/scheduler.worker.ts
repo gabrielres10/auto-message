@@ -85,7 +85,7 @@ async function enqueueMessage(msg: MsgWithRule): Promise<void> {
   const jobId = `send:${execution.id}`;
   const delayMs = Math.max(0, scheduledFor.getTime() - now.getTime());
 
-  // job ID acts as deduplication key — BullMQ silently drops jobs with
+  // Job ID acts as deduplication key — BullMQ silently drops jobs with
   // an ID that already exists in the queue.
   await senderQueue.add(
     "send-message",
@@ -108,11 +108,49 @@ async function enqueueMessage(msg: MsgWithRule): Promise<void> {
 
   // Advance nextRunAt before the job fires so the next tick never double-schedules.
   const rule = msg.recurrenceRule;
-  const isOnce = msg.recurrenceType === "ONCE" || !rule;
+  const isOnce =
+    msg.recurrenceType === "ONCE" || !rule;
+
   const nextRunAt = isOnce
     ? null
-    : computeNextRunAt(msg, rule, scheduledFor);
-  const keeps = nextRunAt !== null && rule !== null && isWithinBounds(nextRunAt, rule);
+    : computeNextRunAt(
+        { scheduledTime: msg.scheduledTime, timezone: msg.timezone },
+        {
+          type: rule!.type as
+            | "ONCE"
+            | "DAILY"
+            | "WEEKDAYS"
+            | "WEEKLY"
+            | "MONTHLY"
+            | "CUSTOM",
+          interval: rule!.interval,
+          daysOfWeek: rule!.daysOfWeek as string[],
+          daysOfMonth: rule!.daysOfMonth,
+          endsAt: rule!.endsAt,
+          maxOccurrences: rule!.maxOccurrences,
+          occurrenceCount: rule!.occurrenceCount,
+        },
+        scheduledFor,
+      );
+
+  const keeps =
+    nextRunAt !== null &&
+    rule !== null &&
+    isWithinBounds(nextRunAt, {
+      type: rule.type as
+        | "ONCE"
+        | "DAILY"
+        | "WEEKDAYS"
+        | "WEEKLY"
+        | "MONTHLY"
+        | "CUSTOM",
+      interval: rule.interval,
+      daysOfWeek: rule.daysOfWeek as string[],
+      daysOfMonth: rule.daysOfMonth,
+      endsAt: rule.endsAt,
+      maxOccurrences: rule.maxOccurrences,
+      occurrenceCount: rule.occurrenceCount + 1,
+    });
 
   if (!keeps) {
     // Last occurrence — deactivate. The sender worker sets COMPLETED on delivery.

@@ -9,7 +9,27 @@
       "Bash(Out-Null)",
       "Bash(Write-Host \"Created\")",
       "Bash(npx tsx -e ' *)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(node -e \"const p=require\\('./package.json'\\);const w=require\\('./apps/web/package.json'\\);const wk=require\\('./apps/worker/package.json'\\);const s=require\\('./packages/shared/package.json'\\);console.log\\('root deps:',Object.keys\\({...p.dependencies,...p.devDependencies}\\).filter\\(k=>k.includes\\('date'\\)\\)\\);console.log\\('web deps:',Object.keys\\({...w.dependencies,...w.devDependencies}\\).filter\\(k=>k.includes\\('date'\\)\\)\\);console.log\\('worker deps:',Object.keys\\({...wk.dependencies,...wk.devDependencies}\\).filter\\(k=>k.includes\\('date'\\)\\)\\);console.log\\('shared deps:',Object.keys\\({...s.dependencies,...\\(s.devDependencies||{}\\)}\\).filter\\(k=>k.includes\\('date'\\)\\)\\)\")",
+      "Bash(findstr \"date\")",
+      "Bash(node -e \"console.log\\(require\\('./node_modules/date-fns/package.json'\\).version\\);console.log\\(require\\('./node_modules/date-fns-tz/package.json'\\).version\\)\")",
+      "Bash(node -e \"const tz=require\\('./node_modules/date-fns-tz'\\);console.log\\(Object.keys\\(tz\\).filter\\(k=>!k.startsWith\\('_'\\)\\)\\)\")",
+      "Bash(node -e \"const p=require\\('./node_modules/date-fns/package.json'\\);console.log\\('main:',p.main\\);console.log\\('exports keys:',Object.keys\\(p.exports||{}\\).slice\\(0,5\\)\\)\")",
+      "Bash(node -e \"const p=require\\('./node_modules/date-fns-tz/package.json'\\);console.log\\('main:',p.main,'types:',p.types,'exports:',JSON.stringify\\(p.exports?.['.']\\).slice\\(0,200\\)\\)\")",
+      "Bash(node -e \"const p=require\\('./node_modules/date-fns/package.json'\\);console.log\\('types:',p.types,'typesVersions:',JSON.stringify\\(p.typesVersions\\)?.slice\\(0,100\\)\\)\")",
+      "Bash(node -e \"const p=require\\('./node_modules/date-fns-tz/package.json'\\);console.log\\('types:',p.types,'typings:',p.typings\\)\")",
+      "Bash(Get-ChildItem \"c:\\\\Users\\\\gabri\\\\Projects\\\\auto-message\\\\node_modules\\\\date-fns\" -Filter \"*.d.ts\")",
+      "Bash(Select-Object -First 3)",
+      "Bash(Select-Object Name)",
+      "Bash(Get-ChildItem \"c:\\\\Users\\\\gabri\\\\Projects\\\\auto-message\\\\node_modules\\\\date-fns\")",
+      "Bash(Select-Object -First 6)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\gabri\\\\Projects\\\\auto-message\" -Recurse -Force)",
+      "Bash(Select-Object FullName, PSIsContainer)",
+      "Bash(Sort-Object FullName)",
+      "Bash(Format-Table -AutoSize -Wrap)",
+      "Bash(cd /mnt/c/Users/gabri/Projects/auto-message && npx prisma migrate dev --name add-weekdays-recurrence-type --create-only 2>&1)",
+      "Read(//mnt/c/Users/gabri/Projects/**)",
+      "PowerShell(node C:\\\\Users\\\\gabri\\\\Projects\\\\auto-message\\\\node_modules\\\\typescript\\\\bin\\\\tsc --version)"
     ]
   }
 }

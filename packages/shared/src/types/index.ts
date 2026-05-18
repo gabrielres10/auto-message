@@ -11,7 +11,13 @@ export type ExecutionStatus =
   | "FAILED"
   | "CANCELLED"
   | "RETRYING";
-export type RecurrenceType = "ONCE" | "DAILY" | "WEEKLY" | "MONTHLY" | "CUSTOM";
+export type RecurrenceType =
+  | "ONCE"
+  | "DAILY"
+  | "WEEKDAYS"
+  | "WEEKLY"
+  | "MONTHLY"
+  | "CUSTOM";
 export type DayOfWeek =
   | "SUNDAY"
   | "MONDAY"

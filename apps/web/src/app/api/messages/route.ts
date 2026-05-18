@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { db } from "@/lib/db";
-import { localToUtc } from "@auto-message/shared";
+import {
+  localTimeToUtc,
+  validateScheduleInput,
+  SchedulingMode,
+  WEEKDAY_DAYS,
+  type ScheduleInput,
+} from "@auto-message/shared";
 import type { RecurrenceType } from "@prisma/client";
 
 export async function GET() {
@@ -12,7 +18,10 @@ export async function GET() {
 
   const messages = await db.scheduledMessage.findMany({
     where: { userId: session.user.id, deletedAt: null },
-    include: { recurrenceRule: true, executions: { orderBy: { scheduledFor: "desc" }, take: 1 } },
+    include: {
+      recurrenceRule: true,
+      executions: { orderBy: { scheduledFor: "desc" }, take: 1 },
+    },
     orderBy: { createdAt: "desc" },
   });
 
@@ -27,44 +36,73 @@ export async function POST(request: NextRequest) {
 
   const raw = (await request.json()) as Record<string, unknown>;
 
-  const phoneNumber = String(raw.phoneNumber ?? "");
-  const body = String(raw.body ?? "");
-  const timezone = String(raw.timezone ?? "");
-  const scheduledTime = String(raw.scheduledTime ?? ""); // "HH:MM"
-  const scheduledDate = String(raw.scheduledDate ?? ""); // "YYYY-MM-DD"
-  const recurrenceType = (raw.recurrenceType as RecurrenceType | undefined) ?? "ONCE";
+  const input: ScheduleInput = {
+    phoneNumber: String(raw.phoneNumber ?? ""),
+    body: String(raw.body ?? ""),
+    timezone: String(raw.timezone ?? ""),
+    scheduledTime: String(raw.scheduledTime ?? ""),
+    scheduledDate: String(raw.scheduledDate ?? ""),
+    mode: String(raw.mode ?? raw.recurrenceType ?? "") as SchedulingMode,
+    daysOfWeek: Array.isArray(raw.daysOfWeek)
+      ? (raw.daysOfWeek as string[]).filter(Boolean) as ScheduleInput["daysOfWeek"]
+      : undefined,
+    intervalDays:
+      raw.intervalDays !== undefined
+        ? Number(raw.intervalDays)
+        : raw.interval !== undefined
+          ? Number(raw.interval)
+          : undefined,
+    endsAt: raw.endsAt ? String(raw.endsAt).slice(0, 10) : undefined,
+    maxOccurrences: raw.maxOccurrences ? Number(raw.maxOccurrences) : undefined,
+  };
 
-  if (!phoneNumber || !body || !timezone || !scheduledTime || !scheduledDate) {
+  const validation = validateScheduleInput(input);
+  if (!validation.valid) {
     return NextResponse.json(
-      { error: "phoneNumber, body, timezone, scheduledTime, and scheduledDate are required" },
+      { error: "Validation failed", details: validation.errors },
       { status: 400 },
     );
   }
 
-  // Compute the first UTC fire time.
-  // Use noon UTC of the given date so getDateInTz returns the correct calendar day
-  // regardless of the user's timezone offset.
-  const [year, month, day] = scheduledDate.split("-").map(Number);
-  const [hour, minute] = scheduledTime.split(":").map(Number);
-  const noonUtc = new Date(Date.UTC(year, month - 1, day, 12, 0));
-  const nextRunAt = localToUtc(noonUtc, hour, minute, timezone);
+  // ── Normalize WEEKDAYS mode to WEEKLY + Mon–Fri daysOfWeek ─────────────────
+  // WEEKDAYS is a UI convenience; it's stored as WEEKLY internally.
+  let recurrenceType: RecurrenceType;
+  let daysOfWeek: string[];
 
-  // Optional recurrence fields
-  const interval = Number(raw.interval ?? 1);
-  const daysOfWeek = Array.isArray(raw.daysOfWeek) ? (raw.daysOfWeek as string[]) : [];
-  const daysOfMonth = Array.isArray(raw.daysOfMonth) ? (raw.daysOfMonth as number[]) : [];
-  const endsAt = raw.endsAt ? new Date(String(raw.endsAt)) : null;
-  const maxOccurrences = raw.maxOccurrences ? Number(raw.maxOccurrences) : null;
+  if (input.mode === SchedulingMode.WEEKDAYS) {
+    recurrenceType = "WEEKDAYS";
+    daysOfWeek = WEEKDAY_DAYS as unknown as string[];
+  } else if (input.mode === SchedulingMode.WEEKLY) {
+    recurrenceType = "WEEKLY";
+    daysOfWeek = input.daysOfWeek as string[];
+  } else {
+    recurrenceType = input.mode as RecurrenceType;
+    daysOfWeek = [];
+  }
+
+  const interval =
+    input.mode === SchedulingMode.CUSTOM ? (input.intervalDays ?? 1) : 1;
+
+  // ── Compute first UTC fire time ──────────────────────────────────────────────
+  const nextRunAt = localTimeToUtc(
+    input.scheduledDate,
+    input.scheduledTime,
+    input.timezone,
+  );
+
+  const endsAt = input.endsAt
+    ? new Date(`${input.endsAt}T23:59:59`)
+    : null;
 
   const needsRule = recurrenceType !== "ONCE";
 
   const message = await db.scheduledMessage.create({
     data: {
       userId: session.user.id,
-      phoneNumber,
-      body,
-      timezone,
-      scheduledTime,
+      phoneNumber: input.phoneNumber,
+      body: input.body,
+      timezone: input.timezone,
+      scheduledTime: input.scheduledTime,
       recurrenceType,
       status: "ACTIVE",
       isActive: true,
@@ -76,10 +114,10 @@ export async function POST(request: NextRequest) {
                 type: recurrenceType,
                 interval,
                 daysOfWeek: daysOfWeek as never,
-                daysOfMonth,
+                daysOfMonth: [],
                 startsAt: nextRunAt,
                 endsAt,
-                maxOccurrences,
+                maxOccurrences: input.maxOccurrences ?? null,
               },
             },
           }
