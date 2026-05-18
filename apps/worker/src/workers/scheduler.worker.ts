@@ -82,7 +82,7 @@ async function enqueueMessage(msg: MsgWithRule): Promise<void> {
     },
   });
 
-  const jobId = `send:${execution.id}`;
+  const jobId = `send-${execution.id}`;
   const delayMs = Math.max(0, scheduledFor.getTime() - now.getTime());
 
   // Job ID acts as deduplication key — BullMQ silently drops jobs with
