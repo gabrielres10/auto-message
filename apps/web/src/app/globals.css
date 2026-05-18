@@ -4,30 +4,31 @@
 
 @layer base {
   :root {
-    /* Surfaces */
-    --surface-1: 0 0% 100%;
-    --surface-2: 240 5% 96%;
-    /* Border */
-    --border-subtle: 240 6% 90%;
-    /* Text */
-    --fg: 240 10% 4%;
-    --fg-secondary: 240 4% 46%;
-    /* CTA */
-    --cta: 234 89% 60%;
+    --surface-1: 250 18% 97%;
+    --surface-2: 250 14% 93%;
+    --surface-3: 250 10% 88%;
+    --border-subtle: 250 12% 86%;
+    --fg: 250 22% 8%;
+    --fg-secondary: 250 10% 44%;
+    --cta: 262 88% 62%;
+    --cta-muted: 262 50% 22%;
   }
 
   .dark {
-    --surface-1: 240 10% 5%;
-    --surface-2: 240 8% 9%;
-    --border-subtle: 240 6% 16%;
-    --fg: 0 0% 95%;
-    --fg-secondary: 240 4% 60%;
-    --cta: 234 89% 68%;
+    --surface-1: 254 22% 7%;
+    --surface-2: 254 18% 10%;
+    --surface-3: 254 14% 14%;
+    --border-subtle: 254 14% 19%;
+    --fg: 254 20% 96%;
+    --fg-secondary: 254 10% 56%;
+    --cta: 262 85% 68%;
+    --cta-muted: 262 45% 18%;
   }
 
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    color-scheme: dark;
   }
 
   body {
@@ -39,5 +40,37 @@
   *::before,
   *::after {
     box-sizing: border-box;
+  }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border-subtle));
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--fg-secondary) / 0.5);
+  }
+}
+
+@layer utilities {
+  .glow-cta {
+    box-shadow: 0 0 0 1px hsl(var(--cta) / 0.3), 0 4px 24px hsl(var(--cta) / 0.22);
+  }
+  .glow-cta-xs {
+    box-shadow: 0 0 12px hsl(var(--cta) / 0.18);
+  }
+  .text-gradient-cta {
+    background: linear-gradient(135deg, hsl(var(--cta)), hsl(var(--cta) / 0.6));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .surface-elevated {
+    background: linear-gradient(
+      145deg,
+      hsl(var(--surface-1)),
+      hsl(var(--surface-3) / 0.4)
+    );
   }
 }
