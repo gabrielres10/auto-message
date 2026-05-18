@@ -7,7 +7,9 @@
       "Bash(npx prisma *)",
       "Bash(New-Item -ItemType Directory -Force \"C:\\\\Users\\\\gabri\\\\Projects\\\\auto-message\\\\prisma\\\\migrations\\\\20260518000000_init\")",
       "Bash(Out-Null)",
-      "Bash(Write-Host \"Created\")"
+      "Bash(Write-Host \"Created\")",
+      "Bash(npx tsx -e ' *)",
+      "Bash(node -e ' *)"
     ]
   }
 }

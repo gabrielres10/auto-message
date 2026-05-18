@@ -3,9 +3,9 @@ import { redis } from "./redis";
 import type { SendMessageJobData } from "@auto-message/shared";
 
 export const QUEUE_NAMES = {
-  SCHEDULER: "auto-msg:scheduler",
-  SENDER: "auto-msg:sender",
-  DLQ: "auto-msg:dlq",
+  SCHEDULER: "auto-msg-scheduler",
+  SENDER: "auto-msg-sender",
+  DLQ: "auto-msg-dlq",
 } as const;
 
 // Web app only needs a reference to the sender queue for job cancellation.
